@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nearby Hospitals Locator</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://smtpjs.com/v3/smtp.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+        }
+        .header {
+            background-color: #28a745;
+            color: white;
+            padding: 15px;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 5px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .emergency-btn {
+            font-size: 20px;
+            font-weight: bold;
+            background-color: red;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            50% { background-color: yellow; }
+        }
+        #map {
+            height: 500px;
+            width: 100%;
+            margin-top: 20px;
+            border-radius: 8px;
+        }
+        .error {
+            color: red;
+            font-size: 16px;
+        }
+        #alertPopup {
+            display: none;
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 20px;
+            border: 2px solid red;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            width: 80%;
+            max-width: 400px;
+        }
+        #alertPopup button {
+            background-color: red;
+            color: white;
+            font-size: 18px;
+        }
+        a{
+            border: 2px solid black;
+            background-color: red;
+
+        }
+        a:hover{
+            background-color:yellow;
+        }
+    </style>
+</head>
+<body>
+     
+    <div class="header">Nearby Hospitals Locator</div>
+
+    <button onclick="getLocation()">Track My Location</button>
+    <button onclick="findHospitals()">Find Nearby Hospitals</button>
+
+    <br>
+   
+    <br>
+    <div>
+    <!-- ambulance -->
+<a href="http://127.0.0.1:5500/anime.html">Alert</a>
+</div
+
+<br>
+
+    <!-- <p id="statusMessage"></p> -->
+    <button class="emergency-btn" onclick="showEmergencyAlert()">🚨 Emergency Alert</button>
+    <br>
+    <p id="statusMessage"></p>
+
+    <input type="text" id="customMessage" placeholder="Enter emergency details..." style="width: 80%; padding: 10px;">
+    <br>
+
+    <div id="map"></div>
+    <p class="error" id="error-message"></p>
+
+
+    
+          
+    <!-- Emergency Alert Popup -->
+    <div id="alertPopup">
+        <h2>🚨 Emergency Alert 🚨</h2>
+        <p>An accident has been reported! Sending notification to nearby hospitals...</p>
+        <button onclick="sendAlert()">Confirm & Send Alert</button>
+        <button onclick="closePopup()">Cancel</button>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        let map = L.map('map').setView([20.5937, 78.9629], 5); // Default: India view
+        let userMarker, hospitalMarkers = [], hospitalsList = [];
+
+        // Load OpenStreetMap tiles
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        function getLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        let lat = position.coords.latitude;
+                        let lng = position.coords.longitude;
+                        document.getElementById("statusMessage").innerText = `Your Location: ${lat}, ${lng}`;
+
+                        map.setView([lat, lng], 14);
+
+                        if (userMarker) {
+                            userMarker.setLatLng([lat, lng]);
+                        } else {
+                            userMarker = L.marker([lat, lng]).addTo(map)
+                                .bindPopup("Your Location")
+                                .openPopup();
+                        }
+                    },
+                    (error) => {
+                        document.getElementById("error-message").innerText = "Geolocation failed!";
+                    }
+                );
+            } else {
+                document.getElementById("error-message").innerText = "Geolocation is not supported!";
+            }
+        }
+
+        function findHospitals() {
+            let statusText = document.getElementById("statusMessage").innerText;
+            if (!statusText.includes("Your Location:")) {
+                alert("Please track your location first!");
+                return;
+            }
+
+            let [_, lat, lng] = statusText.match(/Your Location: ([0-9.-]+), ([0-9.-]+)/) || [];
+            if (!lat || !lng) {
+                alert("Invalid location!");
+                return;
+            }
+
+            // Remove old hospital markers
+            hospitalMarkers.forEach(marker => map.removeLayer(marker));
+            hospitalMarkers = [];
+            hospitalsList = [];
+
+            let overpassQuery = `[out:json];node(around:5000,${lat},${lng})["amenity"="hospital"];out;`;
+            let url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
+
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.elements.length === 0) {
+                        alert("No hospitals found nearby!");
+                        return;
+                    }
+
+                    data.elements.forEach(hospital => {
+                        let hospitalLat = hospital.lat;
+                        let hospitalLng = hospital.lon;
+                        let hospitalName = hospital.tags.name || "Unknown Hospital";
+
+                        hospitalsList.push({ name: hospitalName, lat: hospitalLat, lng: hospitalLng });
+
+                        let hospitalMarker = L.marker([hospitalLat, hospitalLng]).addTo(map)
+                            .bindPopup(`<strong>${hospitalName}</strong><br>
+                                <button onclick="getDirections(${lat}, ${lng}, ${hospitalLat}, ${hospitalLng})">
+                                    Get Directions
+                                </button>`);
+
+                        hospitalMarkers.push(hospitalMarker);
+                    });
+
+                    alert(`${data.elements.length} hospitals found!`);
+                })
+                .catch(error => {
+                    document.getElementById("error-message").innerText = "Error fetching hospital data!";
+                });
+        }
+
+        function showEmergencyAlert() {
+            document.getElementById("alertPopup").style.display = "block";
+            let audio = new Audio("https://www.soundjay.com/button/beep-07.wav");
+            audio.play();
+        }
+
+        function closePopup() {
+            document.getElementById("alertPopup").style.display = "none";
+        }
+
+        function sendAlert() {
+            closePopup();
+            alert("Emergency alert sent to nearby hospitals!");
+        }
+
+        function getDirections(userLat, userLng, hospitalLat, hospitalLng) {
+            let directionsUrl = `https://www.google.com/maps/dir/${userLat},${userLng}/${hospitalLat},${hospitalLng}`;
+            window.open(directionsUrl, "_blank");
+        }
+    </script>
+
+          <!-- ambulance -->
+<!-- <a href="http://127.0.0.1:5500/anime.html">ambulance</a> -->
+
+</body>
+</html>
